@@ -1,0 +1,13 @@
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.5
+matplotlib>=3.9
+seaborn>=0.13
+plotly>=5.22
+streamlit>=1.37
+torch>=2.4
+jupyter>=1.0
+shap>=0.45
+joblib>=1.4
+requests>=2.32
+astropy>=6.1
