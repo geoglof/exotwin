@@ -117,4 +117,4 @@ MIT
 
 ## Team
 
-Built during the ENHANCE HACK-4-SAGES Hackathon, March 9–13, 2026.
+Built by Team ORION during the ENHANCE HACK-4-SAGES Hackathon, March 9–13, 2026.
