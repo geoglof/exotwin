@@ -7,11 +7,17 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+import joblib
 import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+from features import (compute_density, compute_escape_velocity, compute_stellar_luminosity,
+                       compute_stellar_flux, compute_habitable_zone, compute_esi,
+                       compute_is_rocky, compute_equilibrium_temp, EARTH)
 
 st.set_page_config(page_title="ExoTwin", layout="wide", initial_sidebar_state="expanded")
 
-# Void Space palette
 C_BG = "#0d1117"
 C_SURFACE = "#161b22"
 C_PRIMARY = "#58a6ff"
@@ -34,6 +40,12 @@ PLOTLY_LAYOUT = dict(
     ),
 )
 
+FEATURE_COLS = [
+    'pl_bmasse', 'pl_rade', 'pl_orbper', 'pl_orbsmax', 'pl_orbeccen',
+    'pl_eqt', 'pl_dens', 'st_teff', 'st_lum', 'st_mass', 'st_rad',
+    'escape_velocity', 'stellar_flux', 'in_hz', 'is_rocky', 'esi',
+]
+
 st.markdown(f"""<style>
     .block-container {{ padding-top: 1.5rem; }}
     section[data-testid="stSidebar"] {{ background-color: {C_SURFACE}; border-right: 1px solid {C_BORDER}; }}
@@ -47,12 +59,62 @@ st.markdown(f"""<style>
 </style>""", unsafe_allow_html=True)
 
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed', 'exoplanets_features.csv')
+BASE = os.path.join(os.path.dirname(__file__), '..')
+DATA_PATH = os.path.join(BASE, 'data', 'processed', 'exoplanets_final.csv')
+MODEL_PATH = os.path.join(BASE, 'models', 'best_model.pkl')
+IMPUTER_PATH = os.path.join(BASE, 'models', 'imputer.pkl')
 
 
 @st.cache_data
 def load_data():
     return pd.read_csv(DATA_PATH)
+
+
+@st.cache_resource
+def load_model():
+    model = joblib.load(MODEL_PATH)
+    imputer = joblib.load(IMPUTER_PATH)
+    return model, imputer
+
+
+def predict_habitability(model, imputer, params_dict):
+    """Predict habitability from a dict of raw planet/star parameters."""
+    row = pd.DataFrame([{
+        'pl_bmasse': params_dict['mass'],
+        'pl_rade': params_dict['radius'],
+        'pl_orbper': params_dict['period'],
+        'pl_orbsmax': params_dict['sma'],
+        'pl_orbeccen': params_dict['ecc'],
+        'pl_eqt': None,
+        'pl_dens': None,
+        'st_teff': params_dict['star_temp'],
+        'st_lum': params_dict['star_lum'],
+        'st_mass': params_dict['star_mass'],
+        'st_rad': params_dict['star_rad'],
+        'pl_name': 'custom',
+    }])
+
+    row = compute_density(row)
+    row = compute_equilibrium_temp(row)
+    row = compute_escape_velocity(row)
+    row = compute_stellar_flux(row)
+    row = compute_habitable_zone(row)
+    row = compute_is_rocky(row)
+    row = compute_esi(row)
+
+    X = row[FEATURE_COLS]
+    X_imp = pd.DataFrame(imputer.transform(X), columns=FEATURE_COLS)
+    score = float(model.predict(X_imp)[0])
+    derived = {
+        'density': row['pl_dens'].iloc[0],
+        'eq_temp': row['pl_eqt'].iloc[0],
+        'escape_vel': row['escape_velocity'].iloc[0],
+        'flux': row['stellar_flux'].iloc[0],
+        'in_hz': row['in_hz'].iloc[0] if pd.notna(row['in_hz'].iloc[0]) else 0,
+        'is_rocky': row['is_rocky'].iloc[0] if pd.notna(row['is_rocky'].iloc[0]) else 0,
+        'esi': row['esi'].iloc[0],
+    }
+    return max(0.0, min(1.0, score)), derived
 
 
 def score_color(val):
@@ -64,7 +126,6 @@ def score_color(val):
 
 
 def make_score_bar(score, label="Habitability"):
-    """Simple horizontal bar instead of a gauge."""
     color = score_color(score)
     pct = max(0, min(100, score * 100))
     return f"""
@@ -80,19 +141,18 @@ def make_score_bar(score, label="Habitability"):
 
 def make_radar(params, planet_name="Planet"):
     categories = list(params.keys())
-
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
         r=list(params.values()), theta=categories,
         fill='toself', name=planet_name, opacity=0.5,
         line=dict(color=C_PRIMARY, width=1.5),
-        fillcolor=f"rgba(88,166,255,0.12)",
+        fillcolor="rgba(88,166,255,0.12)",
     ))
     fig.add_trace(go.Scatterpolar(
         r=[1.0] * len(categories), theta=categories,
         fill='toself', name='Earth', opacity=0.3,
         line=dict(color=C_GREEN, width=1.5),
-        fillcolor=f"rgba(63,185,80,0.08)",
+        fillcolor="rgba(63,185,80,0.08)",
     ))
     fig.update_layout(
         **PLOTLY_LAYOUT,
@@ -102,26 +162,27 @@ def make_radar(params, planet_name="Planet"):
                             gridcolor=C_BORDER, tickfont=dict(color=C_MUTED, size=10)),
             angularaxis=dict(gridcolor=C_BORDER, tickfont=dict(color=C_TEXT, size=11)),
         ),
-        showlegend=True,
-        legend=dict(font=dict(size=11)),
-        height=360,
+        showlegend=True, legend=dict(font=dict(size=11)), height=360,
     )
     return fig
 
 
+# ── Load data and model ──
 df = load_data()
+model, imputer = load_model()
 
-# Sidebar
+# ── Sidebar ──
 st.sidebar.markdown("**ExoTwin**")
 st.sidebar.caption("Digital twin for exoplanet habitability")
-
 mode = st.sidebar.radio("Navigation", ["Database", "Custom Planet", "What-If"])
-
 st.sidebar.markdown(f"<br><span style='color:{C_MUTED};font-size:12px;'>"
-                    f"{len(df):,} planets from NASA Exoplanet Archive</span>",
+                    f"{len(df):,} planets &middot; NASA + PHL data</span>",
                     unsafe_allow_html=True)
 
 
+# ═══════════════════════════════════════════
+# DATABASE
+# ═══════════════════════════════════════════
 if mode == "Database":
     st.markdown(f"<h2 style='margin-bottom:4px;'>Exoplanet database</h2>"
                 f"<span style='color:{C_MUTED};font-size:14px;'>"
@@ -140,7 +201,7 @@ if mode == "Database":
         ].reset_index(drop=True)
         top.index += 1
         top.columns = ['Name', 'Score', 'ESI', 'In HZ', 'Eq. Temp (K)',
-                        'Radius (R⊕)', 'Mass (M⊕)', 'Rocky']
+                        'Radius (R Earth)', 'Mass (M Earth)', 'Rocky']
         st.dataframe(top, use_container_width=True, height=min(36 * n_show + 38, 600))
 
     with tab_scatter:
@@ -165,11 +226,9 @@ if mode == "Database":
 
     with tab_hz:
         hz_df = df.dropna(subset=['pl_orbsmax', 'st_teff', 'hz_inner', 'hz_outer', 'in_hz'])
-
         fig = go.Figure()
         out = hz_df[hz_df['in_hz'] == 0]
         inside = hz_df[hz_df['in_hz'] == 1]
-
         fig.add_trace(go.Scatter(
             x=out['st_teff'], y=out['pl_orbsmax'], mode='markers',
             marker=dict(size=3, color=C_MUTED, opacity=0.15),
@@ -198,6 +257,9 @@ if mode == "Database":
         st.plotly_chart(fig, use_container_width=True)
 
 
+# ═══════════════════════════════════════════
+# CUSTOM PLANET
+# ═══════════════════════════════════════════
 elif mode == "Custom Planet":
     st.markdown("<h2 style='margin-bottom:4px;'>Custom planet twin</h2>", unsafe_allow_html=True)
 
@@ -218,18 +280,40 @@ elif mode == "Custom Planet":
         star_rad = st.slider("Radius (Solar)", 0.1, 5.0, 1.0, 0.05)
 
     with col_result:
-        st.markdown(make_score_bar(0.0, "Habitability — awaiting model"), unsafe_allow_html=True)
+        params = dict(mass=mass, radius=radius, period=period, sma=sma, ecc=ecc,
+                      star_temp=star_temp, star_lum=star_lum, star_mass=star_mass, star_rad=star_rad)
+        score, derived = predict_habitability(model, imputer, params)
+
+        st.markdown(make_score_bar(score, "Predicted habitability"), unsafe_allow_html=True)
+
+        st.markdown(f"""<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:16px;">
+            <div class="score-block"><div class="score-label">ESI</div>
+                <div style="font-size:1.2rem;font-weight:600;">{derived['esi']:.3f if pd.notna(derived['esi']) else '—'}</div></div>
+            <div class="score-block"><div class="score-label">In HZ</div>
+                <div style="font-size:1.2rem;font-weight:600;color:{C_GREEN if derived['in_hz'] else C_MUTED}">{'Yes' if derived['in_hz'] else 'No'}</div></div>
+            <div class="score-block"><div class="score-label">Rocky</div>
+                <div style="font-size:1.2rem;font-weight:600;color:{C_GREEN if derived['is_rocky'] else C_MUTED}">{'Yes' if derived['is_rocky'] else 'No'}</div></div>
+            <div class="score-block"><div class="score-label">Eq. temp</div>
+                <div style="font-size:1.2rem;font-weight:600;">{derived['eq_temp']:.0f} K</div></div>
+            <div class="score-block"><div class="score-label">Esc. velocity</div>
+                <div style="font-size:1.2rem;font-weight:600;">{derived['escape_vel']:.1f} km/s</div></div>
+            <div class="score-block"><div class="score-label">Density</div>
+                <div style="font-size:1.2rem;font-weight:600;">{derived['density']:.2f} g/cm3</div></div>
+        </div>""", unsafe_allow_html=True)
 
         radar_params = {
-            "Mass": mass,
-            "Radius": radius,
-            "Period": min(period / 365.25, 3),
-            "Distance": min(sma, 3),
+            "Mass": mass / EARTH['mass'],
+            "Radius": radius / EARTH['radius'],
+            "Density": (derived['density'] / EARTH['density']) if pd.notna(derived['density']) else 0,
+            "Esc. vel": (derived['escape_vel'] / EARTH['escape_vel']) if pd.notna(derived['escape_vel']) else 0,
             "Star temp": star_temp / 5778,
         }
         st.plotly_chart(make_radar(radar_params, "Custom"), use_container_width=True)
 
 
+# ═══════════════════════════════════════════
+# WHAT-IF SIMULATION
+# ═══════════════════════════════════════════
 elif mode == "What-If":
     st.markdown("<h2 style='margin-bottom:4px;'>What-if simulation</h2>", unsafe_allow_html=True)
 
@@ -239,23 +323,69 @@ elif mode == "What-If":
 
     if selected:
         planet = df[df['pl_name'] == selected].iloc[0]
+        original_score = planet['habitability_score']
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Score", f"{planet['habitability_score']:.3f}")
-        c2.metric("ESI", f"{planet['esi']:.3f}" if pd.notna(planet['esi']) else "—")
-        c3.metric("In HZ", "Yes" if planet['in_hz'] == 1 else "No")
-        c4.metric("Rocky", "Yes" if planet['is_rocky'] == 1 else "No")
+        col_left, col_right = st.columns([1, 1], gap="large")
 
-        param_cols = ['pl_bmasse', 'pl_rade', 'pl_orbper', 'pl_orbsmax', 'pl_eqt',
-                      'st_teff', 'st_lum', 'escape_velocity', 'stellar_flux',
-                      'esi', 'in_hz', 'habitability_score']
-        labels = ['Mass (M⊕)', 'Radius (R⊕)', 'Period (d)', 'Dist. (AU)', 'Eq. temp (K)',
-                  'Star temp (K)', 'Star lum (log)', 'Esc. vel (km/s)', 'Flux (S⊕)',
-                  'ESI', 'In HZ', 'Score']
+        with col_left:
+            st.markdown(f"<span style='color:{C_MUTED};font-size:13px;'>Modify parameters for {selected}</span>",
+                        unsafe_allow_html=True)
 
-        vals = planet[param_cols].values
-        display_df = pd.DataFrame({'Parameter': labels, 'Value': vals})
-        display_df['Value'] = display_df['Value'].apply(
-            lambda v: f"{v:.4f}" if pd.notna(v) else "—"
-        )
-        st.dataframe(display_df, use_container_width=True, hide_index=True, height=460)
+            def safe_val(col, default, as_float=True):
+                v = planet[col]
+                return float(v) if pd.notna(v) else default
+
+            mass = st.slider("Mass (Earth masses)", 0.1, 50.0, safe_val('pl_bmasse', 1.0), 0.1, key="wm")
+            radius = st.slider("Radius (Earth radii)", 0.3, 15.0, safe_val('pl_rade', 1.0), 0.1, key="wr")
+            period = st.slider("Orbital period (days)", 1.0, 1000.0,
+                               min(safe_val('pl_orbper', 365.0), 1000.0), 1.0, key="wp")
+            sma = st.slider("Semi-major axis (AU)", 0.01, 10.0,
+                            min(safe_val('pl_orbsmax', 1.0), 10.0), 0.01, key="ws")
+            ecc = st.slider("Eccentricity", 0.0, 0.9, safe_val('pl_orbeccen', 0.02), 0.01, key="we")
+            star_temp = st.slider("Star temperature (K)", 2500, 10000,
+                                  int(safe_val('st_teff', 5778)), 50, key="wst")
+            star_lum = st.slider("Star luminosity (log Solar)", -3.0, 2.0,
+                                 safe_val('st_lum', 0.0), 0.05, key="wsl")
+            star_mass = st.slider("Star mass (Solar)", 0.1, 5.0,
+                                  safe_val('st_mass', 1.0), 0.05, key="wsm")
+            star_rad = st.slider("Star radius (Solar)", 0.1, 5.0,
+                                 safe_val('st_rad', 1.0), 0.05, key="wsr")
+
+        with col_right:
+            params = dict(mass=mass, radius=radius, period=period, sma=sma, ecc=ecc,
+                          star_temp=star_temp, star_lum=star_lum, star_mass=star_mass, star_rad=star_rad)
+            new_score, derived = predict_habitability(model, imputer, params)
+            delta = new_score - original_score
+
+            st.markdown(make_score_bar(new_score, f"Predicted — {selected}"), unsafe_allow_html=True)
+
+            delta_color = C_GREEN if delta > 0.01 else (C_RED if delta < -0.01 else C_MUTED)
+            delta_sign = "+" if delta >= 0 else ""
+            st.markdown(f"""<div style="margin-top:8px;padding:8px 12px;border:1px solid {C_BORDER};
+                border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="color:{C_MUTED};font-size:13px;">Original score</span>
+                <span style="font-size:1.1rem;">{original_score:.3f}</span>
+            </div>
+            <div style="margin-top:6px;padding:8px 12px;border:1px solid {C_BORDER};
+                border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="color:{C_MUTED};font-size:13px;">Change</span>
+                <span style="font-size:1.1rem;font-weight:600;color:{delta_color};">{delta_sign}{delta:.4f}</span>
+            </div>""", unsafe_allow_html=True)
+
+            st.markdown(f"""<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:16px;">
+                <div class="score-block"><div class="score-label">ESI</div>
+                    <div style="font-size:1.2rem;font-weight:600;">{derived['esi']:.3f if pd.notna(derived['esi']) else '—'}</div></div>
+                <div class="score-block"><div class="score-label">In HZ</div>
+                    <div style="font-size:1.2rem;font-weight:600;color:{C_GREEN if derived['in_hz'] else C_MUTED}">{'Yes' if derived['in_hz'] else 'No'}</div></div>
+                <div class="score-block"><div class="score-label">Rocky</div>
+                    <div style="font-size:1.2rem;font-weight:600;color:{C_GREEN if derived['is_rocky'] else C_MUTED}">{'Yes' if derived['is_rocky'] else 'No'}</div></div>
+            </div>""", unsafe_allow_html=True)
+
+            radar_params = {
+                "Mass": mass / EARTH['mass'],
+                "Radius": radius / EARTH['radius'],
+                "Density": (derived['density'] / EARTH['density']) if pd.notna(derived['density']) else 0,
+                "Esc. vel": (derived['escape_vel'] / EARTH['escape_vel']) if pd.notna(derived['escape_vel']) else 0,
+                "Star temp": star_temp / 5778,
+            }
+            st.plotly_chart(make_radar(radar_params, selected), use_container_width=True)

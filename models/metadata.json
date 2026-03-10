@@ -1,0 +1,48 @@
+{
+  "model_name": "GradientBoosting",
+  "features": [
+    "pl_bmasse",
+    "pl_rade",
+    "pl_orbper",
+    "pl_orbsmax",
+    "pl_orbeccen",
+    "pl_eqt",
+    "pl_dens",
+    "st_teff",
+    "st_lum",
+    "st_mass",
+    "st_rad",
+    "escape_velocity",
+    "stellar_flux",
+    "in_hz",
+    "is_rocky",
+    "esi"
+  ],
+  "target": "habitability_score",
+  "metrics": [
+    {
+      "model": "RandomForest",
+      "best_params": {
+        "max_depth": 20,
+        "min_samples_split": 2,
+        "n_estimators": 100
+      },
+      "r2": 0.9906411870347233,
+      "mse": 0.00010717607478445833,
+      "mae": 0.0029550101293455712,
+      "cv_r2_mean": 0.9818613937074007
+    },
+    {
+      "model": "GradientBoosting",
+      "best_params": {
+        "learning_rate": 0.2,
+        "max_depth": 3,
+        "n_estimators": 300
+      },
+      "r2": 0.9951253733962989,
+      "mse": 5.5823676289179386e-05,
+      "mae": 0.0026123477542946407,
+      "cv_r2_mean": 0.9960188620984727
+    }
+  ]
+}

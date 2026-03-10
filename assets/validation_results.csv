@@ -1,0 +1,9 @@
+Planet,Predicted Score,Expected
+Earth,0.9520337170639525,High (life exists)
+Mars,0.5944175819558686,Medium (past water)
+Venus,0.6372295099334618,Low (runaway greenhouse)
+Jupiter,0.22668106765574433,Very low (gas giant)
+TRAPPIST-1 e,0.9218295264171111,High (top candidate)
+K2-18 b,0.647831835612777,Medium-High (JWST target)
+Kepler-442 b,0.8846643328450878,High (HZ super-Earth)
+Proxima Cen b,0.9122495871469425,High (nearest HZ)
