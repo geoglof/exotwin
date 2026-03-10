@@ -288,7 +288,7 @@ elif mode == "Custom Planet":
 
         st.markdown(f"""<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:16px;">
             <div class="score-block"><div class="score-label">ESI</div>
-                <div style="font-size:1.2rem;font-weight:600;">{derived['esi']:.3f if pd.notna(derived['esi']) else '—'}</div></div>
+                <div style="font-size:1.2rem;font-weight:600;">{f"{derived['esi']:.3f}" if pd.notna(derived['esi']) else '—'}</div></div>
             <div class="score-block"><div class="score-label">In HZ</div>
                 <div style="font-size:1.2rem;font-weight:600;color:{C_GREEN if derived['in_hz'] else C_MUTED}">{'Yes' if derived['in_hz'] else 'No'}</div></div>
             <div class="score-block"><div class="score-label">Rocky</div>
@@ -374,7 +374,7 @@ elif mode == "What-If":
 
             st.markdown(f"""<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:16px;">
                 <div class="score-block"><div class="score-label">ESI</div>
-                    <div style="font-size:1.2rem;font-weight:600;">{derived['esi']:.3f if pd.notna(derived['esi']) else '—'}</div></div>
+                    <div style="font-size:1.2rem;font-weight:600;">{f"{derived['esi']:.3f}" if pd.notna(derived['esi']) else '—'}</div></div>
                 <div class="score-block"><div class="score-label">In HZ</div>
                     <div style="font-size:1.2rem;font-weight:600;color:{C_GREEN if derived['in_hz'] else C_MUTED}">{'Yes' if derived['in_hz'] else 'No'}</div></div>
                 <div class="score-block"><div class="score-label">Rocky</div>
