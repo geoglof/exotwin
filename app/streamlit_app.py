@@ -14,7 +14,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from features import (compute_density, compute_escape_velocity, compute_stellar_luminosity,
                        compute_stellar_flux, compute_habitable_zone, compute_esi,
-                       compute_is_rocky, compute_equilibrium_temp, EARTH)
+                       compute_is_rocky, compute_equilibrium_temp,
+                       compute_spectral_suitability, compute_stellar_suitability, EARTH)
 
 st.set_page_config(page_title="ExoTwin", layout="wide", initial_sidebar_state="expanded")
 
@@ -44,6 +45,7 @@ FEATURE_COLS = [
     'pl_bmasse', 'pl_rade', 'pl_orbper', 'pl_orbsmax', 'pl_orbeccen',
     'pl_eqt', 'pl_dens', 'st_teff', 'st_lum', 'st_mass', 'st_rad',
     'escape_velocity', 'stellar_flux', 'in_hz', 'is_rocky', 'esi',
+    'orbit_stability', 'spectral_suitability', 'stellar_suitability',
 ]
 
 st.markdown(f"""<style>
@@ -101,6 +103,8 @@ def predict_habitability(model, imputer, params_dict):
     row = compute_habitable_zone(row)
     row = compute_is_rocky(row)
     row = compute_esi(row)
+    row = compute_spectral_suitability(row)
+    row = compute_stellar_suitability(row)
 
     X = row[FEATURE_COLS]
     X_imp = pd.DataFrame(imputer.transform(X), columns=FEATURE_COLS)
@@ -113,6 +117,9 @@ def predict_habitability(model, imputer, params_dict):
         'in_hz': row['in_hz'].iloc[0] if pd.notna(row['in_hz'].iloc[0]) else 0,
         'is_rocky': row['is_rocky'].iloc[0] if pd.notna(row['is_rocky'].iloc[0]) else 0,
         'esi': row['esi'].iloc[0],
+        'orbit_stability': row['orbit_stability'].iloc[0] if pd.notna(row.get('orbit_stability', pd.Series([np.nan])).iloc[0]) else 0,
+        'spectral': row['spectral_suitability'].iloc[0] if pd.notna(row.get('spectral_suitability', pd.Series([np.nan])).iloc[0]) else 0,
+        'stellar': row['stellar_suitability'].iloc[0] if pd.notna(row.get('stellar_suitability', pd.Series([np.nan])).iloc[0]) else 0,
     }
     return max(0.0, min(1.0, score)), derived
 
@@ -191,7 +198,7 @@ if mode == "Database":
                 f"{(df['habitability_score'] > 0.5).sum()} with score above 0.5</span>",
                 unsafe_allow_html=True)
 
-    tab_table, tab_scatter, tab_hz = st.tabs(["Candidates", "Mass / Radius", "Habitable Zone"])
+    tab_table, tab_scatter, tab_hz, tab_3d = st.tabs(["Candidates", "Mass / Radius", "Habitable Zone", "3D Explorer"])
 
     with tab_table:
         n_show = st.slider("Show top N planets", 10, 100, 25, 5)
@@ -256,6 +263,48 @@ if mode == "Database":
         )
         st.plotly_chart(fig, use_container_width=True)
 
+    with tab_3d:
+        scatter3d_df = df.dropna(subset=['pl_bmasse', 'pl_rade', 'pl_eqt', 'habitability_score'])
+        fig3d = px.scatter_3d(
+            scatter3d_df,
+            x='pl_bmasse', y='pl_rade', z='pl_eqt',
+            color='habitability_score',
+            color_continuous_scale=[[0, C_BORDER], [0.3, C_MUTED], [0.6, C_PRIMARY], [1.0, C_GREEN]],
+            hover_name='pl_name',
+            hover_data={'pl_bmasse': ':.2f', 'pl_rade': ':.2f', 'pl_eqt': ':.0f',
+                        'habitability_score': ':.3f', 'in_hz': True},
+            log_x=True, log_y=True,
+            labels={'pl_bmasse': 'Mass (M⊕)', 'pl_rade': 'Radius (R⊕)',
+                    'pl_eqt': 'Eq. Temperature (K)', 'habitability_score': 'Score'},
+            opacity=0.7,
+        )
+        fig3d.add_scatter3d(
+            x=[1], y=[1], z=[255], mode='markers+text', text=["Earth"],
+            marker=dict(size=6, color=C_GREEN, symbol='diamond'),
+            textfont=dict(color=C_GREEN, size=12), name='Earth', showlegend=False,
+        )
+        fig3d.update_traces(marker=dict(size=3), selector=dict(type='scatter3d', mode='markers'))
+        fig3d.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color=C_TEXT, size=12),
+            height=620,
+            scene=dict(
+                xaxis=dict(title="Mass (M⊕, log)", backgroundcolor="rgba(0,0,0,0)",
+                           gridcolor=C_BORDER, showbackground=True),
+                yaxis=dict(title="Radius (R⊕, log)", backgroundcolor="rgba(0,0,0,0)",
+                           gridcolor=C_BORDER, showbackground=True),
+                zaxis=dict(title="Eq. Temp (K)", backgroundcolor="rgba(0,0,0,0)",
+                           gridcolor=C_BORDER, showbackground=True),
+                bgcolor="rgba(0,0,0,0)",
+            ),
+            margin=dict(t=8, b=8, l=8, r=8),
+        )
+        st.plotly_chart(fig3d, use_container_width=True)
+        st.markdown(f"<span style='color:{C_MUTED};font-size:12px;'>"
+                    f"{len(scatter3d_df):,} planets with mass, radius, and temperature data. "
+                    f"Drag to rotate, scroll to zoom. Earth marked as green diamond.</span>",
+                    unsafe_allow_html=True)
+
 
 # ═══════════════════════════════════════════
 # CUSTOM PLANET
@@ -299,6 +348,12 @@ elif mode == "Custom Planet":
                 <div style="font-size:1.2rem;font-weight:600;">{derived['escape_vel']:.1f} km/s</div></div>
             <div class="score-block"><div class="score-label">Density</div>
                 <div style="font-size:1.2rem;font-weight:600;">{derived['density']:.2f} g/cm3</div></div>
+            <div class="score-block"><div class="score-label">Orbit stability</div>
+                <div style="font-size:1.2rem;font-weight:600;">{derived['orbit_stability']:.2f}</div></div>
+            <div class="score-block"><div class="score-label">Spectral suit.</div>
+                <div style="font-size:1.2rem;font-weight:600;">{derived['spectral']:.2f}</div></div>
+            <div class="score-block"><div class="score-label">Stellar suit.</div>
+                <div style="font-size:1.2rem;font-weight:600;">{derived['stellar']:.2f}</div></div>
         </div>""", unsafe_allow_html=True)
 
         radar_params = {
@@ -307,6 +362,8 @@ elif mode == "Custom Planet":
             "Density": (derived['density'] / EARTH['density']) if pd.notna(derived['density']) else 0,
             "Esc. vel": (derived['escape_vel'] / EARTH['escape_vel']) if pd.notna(derived['escape_vel']) else 0,
             "Star temp": star_temp / 5778,
+            "Spectral": derived['spectral'],
+            "Stellar": derived['stellar'],
         }
         st.plotly_chart(make_radar(radar_params, "Custom"), use_container_width=True)
 
@@ -324,6 +381,12 @@ elif mode == "What-If":
     if selected:
         planet = df[df['pl_name'] == selected].iloc[0]
         original_score = planet['habitability_score']
+
+        if st.session_state.get('_whatif_planet') != selected:
+            st.session_state['_whatif_planet'] = selected
+            for k in ['wm', 'wr', 'wp', 'ws', 'we', 'wst', 'wsl', 'wsm', 'wsr']:
+                st.session_state.pop(k, None)
+            st.rerun()
 
         col_left, col_right = st.columns([1, 1], gap="large")
 
@@ -357,19 +420,19 @@ elif mode == "What-If":
             new_score, derived = predict_habitability(model, imputer, params)
             delta = new_score - original_score
 
-            st.markdown(make_score_bar(new_score, f"Predicted — {selected}"), unsafe_allow_html=True)
+            st.markdown(make_score_bar(original_score, f"Original — {selected}"), unsafe_allow_html=True)
 
             delta_color = C_GREEN if delta > 0.01 else (C_RED if delta < -0.01 else C_MUTED)
             delta_sign = "+" if delta >= 0 else ""
-            st.markdown(f"""<div style="margin-top:8px;padding:8px 12px;border:1px solid {C_BORDER};
-                border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
-                <span style="color:{C_MUTED};font-size:13px;">Original score</span>
-                <span style="font-size:1.1rem;">{original_score:.3f}</span>
-            </div>
-            <div style="margin-top:6px;padding:8px 12px;border:1px solid {C_BORDER};
-                border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
-                <span style="color:{C_MUTED};font-size:13px;">Change</span>
-                <span style="font-size:1.1rem;font-weight:600;color:{delta_color};">{delta_sign}{delta:.4f}</span>
+            st.markdown(f"""<div style="margin-top:10px;display:flex;gap:8px;">
+                <div style="flex:1;padding:10px 14px;border:1px solid {C_BORDER};border-radius:6px;">
+                    <div style="color:{C_MUTED};font-size:0.75rem;margin-bottom:2px;">Modified score</div>
+                    <div style="font-size:1.4rem;font-weight:600;color:{score_color(new_score)};">{new_score:.3f}</div>
+                </div>
+                <div style="flex:1;padding:10px 14px;border:1px solid {C_BORDER};border-radius:6px;">
+                    <div style="color:{C_MUTED};font-size:0.75rem;margin-bottom:2px;">Change</div>
+                    <div style="font-size:1.4rem;font-weight:600;color:{delta_color};">{delta_sign}{delta:.4f}</div>
+                </div>
             </div>""", unsafe_allow_html=True)
 
             st.markdown(f"""<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:16px;">
@@ -379,6 +442,12 @@ elif mode == "What-If":
                     <div style="font-size:1.2rem;font-weight:600;color:{C_GREEN if derived['in_hz'] else C_MUTED}">{'Yes' if derived['in_hz'] else 'No'}</div></div>
                 <div class="score-block"><div class="score-label">Rocky</div>
                     <div style="font-size:1.2rem;font-weight:600;color:{C_GREEN if derived['is_rocky'] else C_MUTED}">{'Yes' if derived['is_rocky'] else 'No'}</div></div>
+                <div class="score-block"><div class="score-label">Orbit stability</div>
+                    <div style="font-size:1.2rem;font-weight:600;">{derived['orbit_stability']:.2f}</div></div>
+                <div class="score-block"><div class="score-label">Spectral suit.</div>
+                    <div style="font-size:1.2rem;font-weight:600;">{derived['spectral']:.2f}</div></div>
+                <div class="score-block"><div class="score-label">Stellar suit.</div>
+                    <div style="font-size:1.2rem;font-weight:600;">{derived['stellar']:.2f}</div></div>
             </div>""", unsafe_allow_html=True)
 
             radar_params = {
@@ -387,5 +456,59 @@ elif mode == "What-If":
                 "Density": (derived['density'] / EARTH['density']) if pd.notna(derived['density']) else 0,
                 "Esc. vel": (derived['escape_vel'] / EARTH['escape_vel']) if pd.notna(derived['escape_vel']) else 0,
                 "Star temp": star_temp / 5778,
+                "Spectral": derived['spectral'],
+                "Stellar": derived['stellar'],
             }
             st.plotly_chart(make_radar(radar_params, selected), use_container_width=True)
+
+            # Sensitivity analysis: vary each parameter ±20% and measure impact
+            st.markdown(f"<div style='color:{C_MUTED};font-size:13px;margin-top:8px;'>Sensitivity analysis</div>",
+                        unsafe_allow_html=True)
+
+            param_defs = [
+                ("Mass",     "mass",      mass),
+                ("Radius",   "radius",    radius),
+                ("Period",   "period",    period),
+                ("Distance", "sma",       sma),
+                ("Ecc.",     "ecc",       ecc),
+                ("Star T",   "star_temp", star_temp),
+                ("Star L",   "star_lum",  star_lum),
+                ("Star M",   "star_mass", star_mass),
+                ("Star R",   "star_rad",  star_rad),
+            ]
+
+            sens_names, sens_vals = [], []
+            base = params.copy()
+            for label, key, val in param_defs:
+                if key == "star_lum":
+                    up_val = val + 0.08
+                elif val == 0 or (key == "ecc" and val < 0.01):
+                    up_val = val + 0.1
+                else:
+                    up_val = val * 1.20
+                tweaked = base.copy()
+                tweaked[key] = up_val
+                sc_up, _ = predict_habitability(model, imputer, tweaked)
+                sens_names.append(label)
+                sens_vals.append(sc_up - new_score)
+
+            sorted_idx = sorted(range(len(sens_vals)), key=lambda i: abs(sens_vals[i]), reverse=True)
+            s_names = [sens_names[i] for i in sorted_idx]
+            s_vals = [sens_vals[i] for i in sorted_idx]
+            s_colors = [C_GREEN if v > 0 else C_RED if v < 0 else C_MUTED for v in s_vals]
+
+            fig_sens = go.Figure(go.Bar(
+                x=s_vals, y=s_names, orientation='h',
+                marker_color=s_colors,
+                text=[f"{v:+.4f}" for v in s_vals], textposition='outside',
+                textfont=dict(size=11),
+            ))
+            sens_layout = {k: v for k, v in PLOTLY_LAYOUT.items() if k != 'margin'}
+            fig_sens.update_layout(
+                **sens_layout, height=260,
+                xaxis=dict(title="Score change (+20%)", gridcolor=C_BORDER, zeroline=True,
+                           zerolinecolor=C_MUTED, zerolinewidth=1),
+                yaxis=dict(autorange="reversed"),
+                margin=dict(t=8, b=36, l=70, r=50),
+            )
+            st.plotly_chart(fig_sens, use_container_width=True)

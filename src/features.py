@@ -3,8 +3,10 @@ Feature engineering for exoplanet habitability prediction.
 
 Computes derived physical properties and a composite habitability score
 based on established astrophysical models:
-- Habitable Zone: Kopparapu et al. (2013)
+- Habitable Zone: Kopparapu et al. (2013), eccentricity-aware per Bolmont et al. (2016)
 - Earth Similarity Index: Schulze-Makuch et al. (2011)
+- Spectral suitability for photosynthesis: Lingam & Loeb (2018), Meadows & Barnes (2018)
+- Stellar suitability (lifetime + flare activity): Meadows & Barnes (2018)
 """
 
 import numpy as np
@@ -67,8 +69,8 @@ def compute_stellar_flux(df):
 
 def compute_habitable_zone(df):
     """Habitable zone boundaries using Kopparapu et al. (2013) coefficients.
-    Optimistic HZ: recent Venus (inner) to early Mars (outer).
-    Conservative HZ: runaway greenhouse (inner) to maximum greenhouse (outer).
+    Eccentricity-aware: checks perihelion/aphelion against HZ boundaries
+    following Bolmont et al. (2016) on limits of the mean flux approximation.
     """
     mask = df['st_teff'].notna() & df['st_lum'].notna()
     teff = df.loc[mask, 'st_teff']
@@ -76,7 +78,6 @@ def compute_habitable_zone(df):
 
     t_star = teff - 5780.0
 
-    # Kopparapu et al. (2013) coefficients for conservative HZ
     s_eff_inner = 1.0146 + 8.1884e-5 * t_star + 1.9394e-9 * t_star**2
     s_eff_outer = 0.3507 + 5.9578e-5 * t_star + 1.6707e-9 * t_star**2
 
@@ -84,10 +85,31 @@ def compute_habitable_zone(df):
     df.loc[mask, 'hz_outer'] = np.sqrt(lum / s_eff_outer)
 
     hz_mask = mask & df['pl_orbsmax'].notna()
-    df.loc[hz_mask, 'in_hz'] = (
-        (df.loc[hz_mask, 'pl_orbsmax'] >= df.loc[hz_mask, 'hz_inner']) &
-        (df.loc[hz_mask, 'pl_orbsmax'] <= df.loc[hz_mask, 'hz_outer'])
-    ).astype(float)
+
+    ecc = df.loc[hz_mask, 'pl_orbeccen'].fillna(0).clip(lower=0)
+    a = df.loc[hz_mask, 'pl_orbsmax']
+    inner = df.loc[hz_mask, 'hz_inner']
+    outer = df.loc[hz_mask, 'hz_outer']
+
+    sma_in_hz = (a >= inner) & (a <= outer)
+    df.loc[hz_mask, 'in_hz'] = sma_in_hz.astype(float)
+
+    # Orbit stability: continuous (0-1) score combining HZ membership with
+    # eccentricity penalty. Highly eccentric orbits cause flux variations
+    # that overwhelm planetary thermal inertia (Bolmont et al. 2016).
+    # Perihelion/aphelion excursions beyond HZ are captured here as a
+    # soft penalty rather than in the binary in_hz flag.
+    perihelion = a * (1 - ecc)
+    aphelion = a * (1 + ecc)
+    hz_tolerance = 0.05 * (outer - inner)
+    full_in_hz = (perihelion >= inner - hz_tolerance) & (aphelion <= outer + hz_tolerance)
+    ecc_penalty = np.exp(-0.5 * (ecc / 0.3) ** 2)
+
+    orbit_stab = np.where(
+        full_in_hz, ecc_penalty,
+        np.where(sma_in_hz, 0.5 * ecc_penalty, 0.0)
+    )
+    df.loc[hz_mask, 'orbit_stability'] = orbit_stab
 
     return df
 
@@ -150,34 +172,82 @@ def compute_equilibrium_temp(df):
     return df
 
 
+def compute_spectral_suitability(df):
+    """Spectral suitability for photosynthesis based on stellar temperature.
+
+    G/K-type stars (4000-6000 K) provide optimal photosynthetically active
+    radiation. Cool M-dwarfs peak in near-IR, limiting photosynthetic
+    productivity (Lingam & Loeb 2018, ApJ 846). Hot F/A-type stars emit
+    dangerous UV that can sterilize surfaces (Meadows & Barnes 2018).
+    """
+    mask = df['st_teff'].notna()
+    teff = df.loc[mask, 'st_teff']
+
+    score = np.exp(-0.5 * ((teff - 5000) / 1500) ** 2)
+    uv_penalty = np.where(teff > 7500, np.exp(-(teff - 7500) / 1000), 1.0)
+
+    df.loc[mask, 'spectral_suitability'] = score * uv_penalty
+    return df
+
+
+def compute_stellar_suitability(df):
+    """Stellar suitability combining main-sequence lifetime and flare risk.
+
+    Low-mass M-dwarfs (< 0.5 M_sun) have intense flare activity that strips
+    atmospheres and irradiates surfaces. High-mass stars (> 2 M_sun) exhaust
+    hydrogen too fast for life to emerge (lifetime < 1 Gyr).
+    Optimal range: ~0.5-1.2 M_sun (late K to early G).
+    Refs: Meadows & Barnes (2018), Kopparapu et al. (2013).
+    """
+    mask = df['st_mass'].notna()
+    mass = df.loc[mask, 'st_mass']
+
+    lifetime_gyr = 10.0 * mass ** (-2.5)
+    lifetime_score = np.clip(lifetime_gyr / 4.0, 0, 1)
+
+    flare_score = 1 / (1 + np.exp(-10 * (mass - 0.35)))
+
+    df.loc[mask, 'stellar_suitability'] = lifetime_score * flare_score
+    return df
+
+
 def compute_habitability_score(df):
     """Composite habitability score (0-1), weighted combination of factors.
 
-    Components:
-    - in_hz (0 or 1):        Is the planet in the habitable zone?         weight 0.30
-    - esi (0-1):              Earth Similarity Index                       weight 0.25
-    - temp_score (0-1):       Surface temperature suitability (200-330 K)  weight 0.20
-    - atmo_score (0-1):       Can it retain an atmosphere?                 weight 0.15
-    - rocky_score (0 or 1):   Is it rocky?                                 weight 0.10
+    Components (weights sum to 1.0):
+    - in_hz (0 or 1):                HZ membership (eccentricity-aware)     0.22
+    - esi (0-1):                     Earth Similarity Index                 0.20
+    - temp_score (0-1):              Surface temperature suitability        0.15
+    - atmo_score (0-1):              Atmosphere retention capability        0.12
+    - orbit_stability (0-1):         Orbital eccentricity penalty           0.08
+    - spectral_suitability (0-1):    Stellar spectrum for photosynthesis    0.08
+    - stellar_suitability (0-1):     Stellar lifetime + flare risk          0.07
+    - rocky_score (0 or 1):          Rocky composition                      0.08
     """
-    score = pd.Series(np.nan, index=df.index)
-
     hz = df['in_hz'].fillna(0)
     esi = df['esi'].fillna(0)
 
-    # Temperature score: gaussian centered on 265K (Earth-like), sigma=60K
     temp = df['pl_eqt'].fillna(0)
     temp_score = np.exp(-0.5 * ((temp - 265) / 60) ** 2)
     temp_score = np.where(df['pl_eqt'].isna(), 0, temp_score)
 
-    # Atmosphere retention: sigmoid around escape_vel = 5 km/s
     esc = df['escape_velocity'].fillna(0)
     atmo_score = 1 / (1 + np.exp(-2 * (esc - 5)))
     atmo_score = np.where(df['escape_velocity'].isna(), 0, atmo_score)
 
     rocky = df['is_rocky'].fillna(0)
+    orbit_stab = df['orbit_stability'].fillna(0)
+    spectral = df['spectral_suitability'].fillna(0)
+    stellar = df['stellar_suitability'].fillna(0)
 
-    raw = (0.30 * hz + 0.25 * esi + 0.20 * temp_score + 0.15 * atmo_score + 0.10 * rocky)
+    raw = (0.22 * hz
+           + 0.20 * esi
+           + 0.15 * temp_score
+           + 0.12 * atmo_score
+           + 0.08 * orbit_stab
+           + 0.08 * spectral
+           + 0.07 * stellar
+           + 0.08 * rocky)
 
     has_any_data = (
         df['in_hz'].notna() | df['esi'].notna() |
@@ -205,15 +275,17 @@ def run_feature_engineering(input_path=None, output_path=None):
     print(f"Loaded {len(df)} planets from {input_path}")
 
     steps = [
-        ("Computing density",              compute_density),
-        ("Computing stellar luminosity",   compute_stellar_luminosity),
-        ("Computing equilibrium temp",     compute_equilibrium_temp),
-        ("Computing escape velocity",      compute_escape_velocity),
-        ("Computing stellar flux",         compute_stellar_flux),
-        ("Computing habitable zone",       compute_habitable_zone),
-        ("Computing rocky flag",           compute_is_rocky),
-        ("Computing ESI",                  compute_esi),
-        ("Computing habitability score",   compute_habitability_score),
+        ("Computing density",                compute_density),
+        ("Computing stellar luminosity",     compute_stellar_luminosity),
+        ("Computing equilibrium temp",       compute_equilibrium_temp),
+        ("Computing escape velocity",        compute_escape_velocity),
+        ("Computing stellar flux",           compute_stellar_flux),
+        ("Computing habitable zone",         compute_habitable_zone),
+        ("Computing rocky flag",             compute_is_rocky),
+        ("Computing ESI",                    compute_esi),
+        ("Computing spectral suitability",   compute_spectral_suitability),
+        ("Computing stellar suitability",    compute_stellar_suitability),
+        ("Computing habitability score",     compute_habitability_score),
     ]
 
     for desc, func in steps:

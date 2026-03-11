@@ -94,7 +94,7 @@ exotwin/
 | `st_mass` | Stellar mass | Solar masses |
 | `st_rad` | Stellar radius | Solar radii |
 
-**Engineered features:** Earth Similarity Index (ESI), habitable zone membership, bulk density, escape velocity, stellar flux, rocky planet flag.
+**Engineered features:** Earth Similarity Index (ESI), eccentricity-aware habitable zone membership (Kopparapu 2013 + Bolmont 2016), orbit stability, bulk density, escape velocity, stellar flux, rocky planet flag, spectral suitability for photosynthesis (Lingam & Loeb 2018), stellar suitability — lifetime + flare risk (Meadows & Barnes 2018).
 
 ## Planet Classification
 
@@ -115,8 +115,8 @@ Exoplanets in our dataset fall into several categories relevant to habitability:
 1. Data collection from NASA Exoplanet Archive via TAP API (6138 planets)
 2. Cross-reference with PHL Habitable Worlds Catalog (expert labels, ESI gap-filling: 1211 → 5582 planets with ESI)
 3. Feature engineering based on established astrophysical models (Kopparapu 2013, Schulze-Makuch 2011)
-4. Habitability score derivation (composite of HZ membership, ESI, atmosphere retention, composition)
-5. Model training: Random Forest + Gradient Boosting with cross-validation
+4. Habitability score derivation (8-component composite: HZ membership, ESI, atmosphere retention, composition, orbit stability, spectral suitability, stellar suitability, temperature)
+5. Model training: Random Forest + Gradient Boosting with cross-validation (19 features)
 6. Explainability: SHAP TreeExplainer for feature attribution
 7. Validation against Solar System bodies and PHL expert-curated habitable candidates (70 planets)
 8. Interactive digital twin dashboard with what-if simulation
@@ -128,6 +128,9 @@ Exoplanets in our dataset fall into several categories relevant to habitability:
 3. Affholder, A. et al. (2021). "Bayesian analysis of Enceladus's plume data to assess methanogenesis." *Nature Astronomy*, 5, 805–814.
 4. Meadows, V. S. & Barnes, R. K. (2018). "Factors Affecting Exoplanet Habitability." In *Handbook of Exoplanets*.
 5. Méndez, A. et al. (2021). "Habitable Worlds Catalog." Planetary Habitability Laboratory, UPR Arecibo. https://phl.upr.edu/hwc
+6. Bolmont, E. et al. (2016). "Habitability of planets on eccentric orbits." *A&A*, 591, A106.
+7. Lingam, M. & Loeb, A. (2018). "Photosynthesis on habitable planets around low-mass stars." *ApJ*, 846, 21.
+8. Yang, J. et al. (2014). "Strong Dependence of the Inner Edge of the HZ on Planetary Rotation Rate." *ApJ Letters*, 787, L2.
 
 ## License
 

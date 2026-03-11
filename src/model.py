@@ -27,22 +27,25 @@ MODEL_DIR = os.path.join(BASE_DIR, 'models')
 ASSET_DIR = os.path.join(BASE_DIR, 'assets')
 
 FEATURE_COLS = [
-    'pl_bmasse',        # planet mass
-    'pl_rade',          # planet radius
-    'pl_orbper',        # orbital period
-    'pl_orbsmax',       # semi-major axis
-    'pl_orbeccen',      # eccentricity
-    'pl_eqt',           # equilibrium temperature
-    'pl_dens',          # density
-    'st_teff',          # stellar temperature
-    'st_lum',           # stellar luminosity
-    'st_mass',          # stellar mass
-    'st_rad',           # stellar radius
-    'escape_velocity',  # escape velocity
-    'stellar_flux',     # stellar flux at planet
-    'in_hz',            # in habitable zone flag
-    'is_rocky',         # rocky planet flag
-    'esi',              # earth similarity index
+    'pl_bmasse',              # planet mass
+    'pl_rade',                # planet radius
+    'pl_orbper',              # orbital period
+    'pl_orbsmax',             # semi-major axis
+    'pl_orbeccen',            # eccentricity
+    'pl_eqt',                 # equilibrium temperature
+    'pl_dens',                # density
+    'st_teff',                # stellar temperature
+    'st_lum',                 # stellar luminosity
+    'st_mass',                # stellar mass
+    'st_rad',                 # stellar radius
+    'escape_velocity',        # escape velocity
+    'stellar_flux',           # stellar flux at planet
+    'in_hz',                  # in habitable zone flag (eccentricity-aware)
+    'is_rocky',               # rocky planet flag
+    'esi',                    # earth similarity index
+    'orbit_stability',        # orbital eccentricity penalty (Bolmont+ 2016)
+    'spectral_suitability',   # stellar spectrum for photosynthesis
+    'stellar_suitability',    # stellar lifetime + flare risk
 ]
 
 TARGET_COL = 'habitability_score'
@@ -197,16 +200,19 @@ def validate_known_planets(model, imputer):
     print("\n--- Validation on known planets ---")
 
     # Solar System + key exoplanets with known parameters
+    # Columns: name + FEATURE_COLS (19 features)
+    # orbit_stability, spectral_suitability, stellar_suitability computed
+    # from physical formulas in features.py
     known = pd.DataFrame([
-        # name, mass, radius, period, sma, ecc, eqt, dens, st_teff, st_lum, st_mass, st_rad, esc_vel, flux, in_hz, rocky, esi
-        ["Earth",        1.0,   1.0,   365.25, 1.0,   0.017, 255, 5.51, 5778, 0.0,   1.0,  1.0,  11.2,  1.0,  1, 1, 1.0],
-        ["Mars",         0.107, 0.532, 687.0,  1.524, 0.093, 210, 3.93, 5778, 0.0,   1.0,  1.0,  5.03,  0.43, 0, 1, 0.73],
-        ["Venus",        0.815, 0.949, 224.7,  0.723, 0.007, 232, 5.24, 5778, 0.0,   1.0,  1.0,  10.36, 1.91, 0, 1, 0.78],
-        ["Jupiter",      317.8, 11.21, 4333.0, 5.2,   0.049, 110, 1.33, 5778, 0.0,   1.0,  1.0,  59.5,  0.037,0, 0, 0.29],
-        ["TRAPPIST-1 e", 0.692, 0.920, 6.1,    0.029, 0.005, 230, 5.65, 2566, -2.57, 0.089,0.121,10.2,  0.65, 1, 1, 0.85],
-        ["K2-18 b",      8.92,  2.37,  32.94,  0.143, 0.0,   284, 3.68, 3457, -1.51, 0.359,0.411,8.44,  1.26, 0, 1, 0.77],
-        ["Kepler-442 b", 2.34,  1.34,  112.3,  0.409, 0.04,  233, 5.57, 4402, -0.78, 0.609,0.598,9.36,  0.70, 1, 1, 0.84],
-        ["Proxima Cen b",1.07,  1.08,  11.19,  0.049, 0.11,  234, 4.95, 3042, -2.54, 0.122,0.154,10.8,  0.68, 1, 1, 0.86],
+        #              mass  rad   per     sma    ecc   eqt  dens  st_t   st_l   st_m  st_r  esc   flux  hz rky esi  orb_s spec  stel
+        ["Earth",      1.0,  1.0,  365.25, 1.0,   0.017,255, 5.51, 5778, 0.0,   1.0,  1.0,  11.2, 1.0,  1, 1, 1.0, 1.0,  0.87, 1.0 ],
+        ["Mars",       0.107,0.532,687.0,  1.524, 0.093,210, 3.93, 5778, 0.0,   1.0,  1.0,  5.03, 0.43, 1, 1, 0.73,0.95, 0.87, 1.0 ],
+        ["Venus",      0.815,0.949,224.7,  0.723, 0.007,232, 5.24, 5778, 0.0,   1.0,  1.0,  10.36,1.91, 0, 1, 0.78,0.0,  0.87, 1.0 ],
+        ["Jupiter",    317.8,11.21,4333.0, 5.2,   0.049,110, 1.33, 5778, 0.0,   1.0,  1.0,  59.5, 0.037,0, 0, 0.29,0.0,  0.87, 1.0 ],
+        ["TRAPPIST-1 e",0.692,0.920,6.1,   0.029, 0.005,230, 5.65, 2566, -2.57, 0.089,0.121,10.2, 0.65, 1, 1, 0.85,1.0,  0.27, 0.07],
+        ["K2-18 b",    8.92, 2.37, 32.94,  0.143, 0.0,  284, 3.68, 3457, -1.51, 0.359,0.411,8.44, 1.26, 0, 1, 0.77,0.0,  0.59, 0.52],
+        ["Kepler-442 b",2.34,1.34, 112.3,  0.409, 0.04, 233, 5.57, 4402, -0.78, 0.609,0.598,9.36, 0.70, 1, 1, 0.84,0.99, 0.92, 0.93],
+        ["Proxima Cen b",1.07,1.08, 11.19, 0.049, 0.11, 234, 4.95, 3042, -2.54, 0.122,0.154,10.8, 0.68, 1, 1, 0.86,0.93, 0.43, 0.09],
     ], columns=['name'] + FEATURE_COLS)
 
     X_known = known[FEATURE_COLS].astype(float)

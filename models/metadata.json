@@ -16,7 +16,10 @@
     "stellar_flux",
     "in_hz",
     "is_rocky",
-    "esi"
+    "esi",
+    "orbit_stability",
+    "spectral_suitability",
+    "stellar_suitability"
   ],
   "target": "habitability_score",
   "metrics": [
@@ -25,24 +28,24 @@
       "best_params": {
         "max_depth": 20,
         "min_samples_split": 2,
-        "n_estimators": 100
+        "n_estimators": 300
       },
-      "r2": 0.9906411870347233,
-      "mse": 0.00010717607478445833,
-      "mae": 0.0029550101293455712,
-      "cv_r2_mean": 0.9818613937074007
+      "r2": 0.9734308765529754,
+      "mse": 0.00029465222472971586,
+      "mae": 0.005254631467798314,
+      "cv_r2_mean": 0.9727121610272453
     },
     {
       "model": "GradientBoosting",
       "best_params": {
-        "learning_rate": 0.2,
+        "learning_rate": 0.1,
         "max_depth": 3,
         "n_estimators": 300
       },
-      "r2": 0.9951253733962989,
-      "mse": 5.5823676289179386e-05,
-      "mae": 0.0026123477542946407,
-      "cv_r2_mean": 0.9960188620984727
+      "r2": 0.992466942922373,
+      "mse": 8.354178606473004e-05,
+      "mae": 0.004581963329803038,
+      "cv_r2_mean": 0.9895274096389013
     }
   ]
 }
