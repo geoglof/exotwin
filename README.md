@@ -96,6 +96,20 @@ exotwin/
 
 **Engineered features:** Earth Similarity Index (ESI), habitable zone membership, bulk density, escape velocity, stellar flux, rocky planet flag.
 
+## Planet Classification
+
+Exoplanets in our dataset fall into several categories relevant to habitability:
+
+| Category | Criteria | Count | Habitability relevance |
+|----------|----------|-------|----------------------|
+| Rocky (Terran) | R < 1.6 R⊕ or ρ > 3.5 g/cm³ | ~1500 | Most likely to support surface life |
+| Super-Earths | 1.2–2.0 R⊕, 2–10 M⊕ | ~800 | May be rocky or transitional |
+| Mini-Neptunes | 2.0–4.0 R⊕ | ~1200 | Thick H/He envelope, less likely habitable on surface |
+| Gas Giants | R > 4 R⊕, M > 50 M⊕ | ~2000 | No solid surface, not habitable (moons may be) |
+| Tidally locked | P < ~30 d, a < ~0.1 AU, M-dwarf host | Many HZ candidates | One side permanently faces star; extreme temperature contrasts, but terminator zone may be habitable |
+
+**Note on tidal locking:** Neither NASA nor PHL datasets include a direct tidal locking flag. However, most habitable zone candidates around M-dwarf stars (e.g., TRAPPIST-1 e/f/g, Proxima Centauri b, Teegarden's Star b) are almost certainly tidally locked due to their close orbits (periods of days). This is a known limitation — tidal locking affects atmospheric circulation, heat redistribution, and ultimately habitability, but cannot be directly measured from current observations.
+
 ## Methodology
 
 1. Data collection from NASA Exoplanet Archive via TAP API (6138 planets)
