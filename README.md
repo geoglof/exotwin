@@ -31,7 +31,7 @@ PHL Habitable Worlds ───┘       │                │                  
 
 ```bash
 # Clone the repository
-git clone https://github.com/<YOUR_USERNAME>/exotwin.git
+git clone https://github.com/geoglof/exotwin.git
 cd exotwin
 
 # Create virtual environment
